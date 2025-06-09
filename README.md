@@ -28,7 +28,7 @@ Il Game of Life è un automa cellulare ideato dal matematico britannico John Con
 2. Clona o scarica questo progetto
 3. Naviga nella directory del progetto:
    ```bash
-   cd /Users/daviderosa/gol
+   cd /gol
    ```
 4. Attiva l'ambiente virtuale:
    ```bash
