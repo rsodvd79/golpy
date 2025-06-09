@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game of Life Toroidale</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: white;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .subtitle {
+            font-size: 1.2em;
+            margin-bottom: 20px;
+            opacity: 0.9;
+        }
+
+        .game-area {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        #gameCanvas {
+            border: 2px solid #fff;
+            border-radius: 8px;
+            cursor: crosshair;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        button {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .pause-btn {
+            background: linear-gradient(45deg, #ff9800, #f57c00) !important;
+        }
+
+        .reset-btn {
+            background: linear-gradient(45deg, #2196F3, #1976D2) !important;
+        }
+
+        .clear-btn {
+            background: linear-gradient(45deg, #f44336, #d32f2f) !important;
+        }
+
+        .random-btn {
+            background: linear-gradient(45deg, #9c27b0, #7b1fa2) !important;
+        }
+
+        .status {
+            margin: 15px 0;
+            font-size: 1.1em;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            display: inline-block;
+        }
+
+        .info {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            text-align: left;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .info h3 {
+            color: #4CAF50;
+            margin-top: 0;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .speed-control {
+            margin: 15px 0;
+        }
+
+        .speed-control input {
+            width: 200px;
+            margin: 0 10px;
+        }
+
+        .generation-counter {
+            font-size: 1.3em;
+            margin: 10px 0;
+            color: #4CAF50;
+        }
+
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            button {
+                width: 200px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌍 Game of Life Toroidale</h1>
+        <p class="subtitle">Universo cellulare infinito di John Conway</p>
+        
+        <div class="game-area">
+            <canvas id="gameCanvas" width="800" height="600"></canvas>
+            
+            <div class="controls">
+                <button id="playPauseBtn" class="pause-btn">▶️ Avvia</button>
+                <button id="resetBtn" class="reset-btn">🔄 Reset</button>
+                <button id="clearBtn" class="clear-btn">🧹 Cancella</button>
+                <button id="randomBtn" class="random-btn">🎲 Casuale</button>
+            </div>
+            
+            <div class="speed-control">
+                <label>Velocità: </label>
+                <input type="range" id="speedSlider" min="1" max="20" value="10">
+                <span id="speedValue">10 FPS</span>
+            </div>
+            
+            <div class="status" id="status">⏸️ In pausa - Clicca sulle celle per disegnarle</div>
+            <div class="generation-counter">Generazione: <span id="generation">0</span></div>
+        </div>
+        
+        <div class="info">
+            <h3>🎮 Controlli</h3>
+            <p><strong>Click mouse:</strong> Attiva/disattiva celle</p>
+            <p><strong>Spazio:</strong> Pausa/Riprendi</p>
+            <p><strong>R:</strong> Reset con pattern iniziali</p>
+            <p><strong>C:</strong> Cancella griglia</p>
+            <p><strong>T:</strong> Riempimento casuale</p>
+            
+            <h3>🌐 Griglia Toroidale</h3>
+            <p>I bordi della griglia sono connessi! I pattern che escono da un lato riappaiono dall'altro, creando un universo virtualmente infinito. Osserva come i glider attraversano i bordi!</p>
+            
+            <h3>📏 Regole del Game of Life</h3>
+            <ul>
+                <li><strong>Sopravvivenza:</strong> Una cella viva con 2 o 3 vicini vivi sopravvive</li>
+                <li><strong>Nascita:</strong> Una cella morta con 3 vicini vivi diventa viva</li>
+                <li><strong>Morte:</strong> Tutte le altre celle muoiono</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        class GameOfLife {
+            constructor(canvasId, cellSize = 8) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.cellSize = cellSize;
+                
+                this.width = Math.floor(this.canvas.width / cellSize);
+                this.height = Math.floor(this.canvas.height / cellSize);
+                
+                this.grid = this.createEmptyGrid();
+                this.isRunning = false;
+                this.generation = 0;
+                this.speed = 10; // FPS
+                
+                this.setupEventListeners();
+                this.initializePatterns();
+                this.draw();
+            }
+            
+            createEmptyGrid() {
+                return Array(this.height).fill().map(() => Array(this.width).fill(0));
+            }
+            
+            setupEventListeners() {
+                // Mouse events
+                this.canvas.addEventListener('click', (e) => this.handleClick(e));
+                this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+                
+                let isDrawing = false;
+                this.canvas.addEventListener('mousedown', () => isDrawing = true);
+                this.canvas.addEventListener('mouseup', () => isDrawing = false);
+                this.canvas.addEventListener('mouseleave', () => isDrawing = false);
+                
+                this.canvas.addEventListener('mousemove', (e) => {
+                    if (isDrawing) this.handleClick(e);
+                });
+                
+                // Keyboard events
+                document.addEventListener('keydown', (e) => this.handleKeyPress(e));
+                
+                // Button events
+                document.getElementById('playPauseBtn').addEventListener('click', () => this.togglePlayPause());
+                document.getElementById('resetBtn').addEventListener('click', () => this.reset());
+                document.getElementById('clearBtn').addEventListener('click', () => this.clear());
+                document.getElementById('randomBtn').addEventListener('click', () => this.randomize());
+                
+                // Speed control
+                const speedSlider = document.getElementById('speedSlider');
+                speedSlider.addEventListener('input', (e) => {
+                    this.speed = parseInt(e.target.value);
+                    document.getElementById('speedValue').textContent = this.speed + ' FPS';
+                });
+            }
+            
+            handleClick(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = Math.floor((e.clientX - rect.left) / this.cellSize);
+                const y = Math.floor((e.clientY - rect.top) / this.cellSize);
+                
+                if (x >= 0 && x < this.width && y >= 0 && y < this.height) {
+                    this.grid[y][x] = this.grid[y][x] ? 0 : 1;
+                    this.draw();
+                }
+            }
+            
+            handleKeyPress(e) {
+                switch(e.code) {
+                    case 'Space':
+                        e.preventDefault();
+                        this.togglePlayPause();
+                        break;
+                    case 'KeyR':
+                        this.reset();
+                        break;
+                    case 'KeyC':
+                        this.clear();
+                        break;
+                    case 'KeyT':
+                        this.randomize();
+                        break;
+                }
+            }
+            
+            // Conta i vicini con griglia toroidale
+            countNeighbors(x, y) {
+                let count = 0;
+                
+                for (let dx = -1; dx <= 1; dx++) {
+                    for (let dy = -1; dy <= 1; dy++) {
+                        if (dx === 0 && dy === 0) continue;
+                        
+                        // Calcolo toroidale: i bordi si "avvolgono"
+                        const nx = (x + dx + this.width) % this.width;
+                        const ny = (y + dy + this.height) % this.height;
+                        
+                        count += this.grid[ny][nx];
+                    }
+                }
+                
+                return count;
+            }
+            
+            // Aggiorna la griglia secondo le regole del Game of Life
+            updateGrid() {
+                const newGrid = this.createEmptyGrid();
+                
+                for (let y = 0; y < this.height; y++) {
+                    for (let x = 0; x < this.width; x++) {
+                        const neighbors = this.countNeighbors(x, y);
+                        const cell = this.grid[y][x];
+                        
+                        if (cell === 1) {
+                            // Cella viva: sopravvive con 2 o 3 vicini
+                            newGrid[y][x] = (neighbors === 2 || neighbors === 3) ? 1 : 0;
+                        } else {
+                            // Cella morta: nasce con 3 vicini
+                            newGrid[y][x] = (neighbors === 3) ? 1 : 0;
+                        }
+                    }
+                }
+                
+                this.grid = newGrid;
+                this.generation++;
+                this.updateUI();
+            }
+            
+            // Disegna la griglia
+            draw() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Sfondo
+                this.ctx.fillStyle = '#000';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Celle vive
+                this.ctx.fillStyle = '#00ff00';
+                for (let y = 0; y < this.height; y++) {
+                    for (let x = 0; x < this.width; x++) {
+                        if (this.grid[y][x] === 1) {
+                            this.ctx.fillRect(
+                                x * this.cellSize,
+                                y * this.cellSize,
+                                this.cellSize - 1,
+                                this.cellSize - 1
+                            );
+                        }
+                    }
+                }
+                
+                // Griglia (opzionale, per celle piccole)
+                if (this.cellSize >= 8) {
+                    this.ctx.strokeStyle = '#333';
+                    this.ctx.lineWidth = 0.5;
+                    
+                    for (let x = 0; x <= this.width; x++) {
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(x * this.cellSize, 0);
+                        this.ctx.lineTo(x * this.cellSize, this.canvas.height);
+                        this.ctx.stroke();
+                    }
+                    
+                    for (let y = 0; y <= this.height; y++) {
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(0, y * this.cellSize);
+                        this.ctx.lineTo(this.canvas.width, y * this.cellSize);
+                        this.ctx.stroke();
+                    }
+                }
+            }
+            
+            // Pattern iniziali
+            initializePatterns() {
+                this.clear();
+                
+                // Glider al centro
+                const centerX = Math.floor(this.width / 2);
+                const centerY = Math.floor(this.height / 2);
+                this.addGlider(centerX, centerY);
+                
+                // Glider vicino al bordo destro (dimostra wrapping)
+                this.addGlider(this.width - 2, centerY + 10);
+                
+                // Oscillatore (blinker) vicino al bordo inferiore
+                this.addBlinker(centerX - 10, this.height - 1);
+                
+                // Pulsar (oscillatore complesso)
+                this.addPulsar(centerX + 20, centerY - 15);
+                
+                this.draw();
+            }
+            
+            addGlider(startX, startY) {
+                const pattern = [
+                    [0, 1, 0],
+                    [0, 0, 1],
+                    [1, 1, 1]
+                ];
+                
+                for (let y = 0; y < pattern.length; y++) {
+                    for (let x = 0; x < pattern[y].length; x++) {
+                        const posX = (startX + x) % this.width;
+                        const posY = (startY + y) % this.height;
+                        this.grid[posY][posX] = pattern[y][x];
+                    }
+                }
+            }
+            
+            addBlinker(startX, startY) {
+                for (let i = 0; i < 3; i++) {
+                    const posX = (startX + i) % this.width;
+                    const posY = startY % this.height;
+                    this.grid[posY][posX] = 1;
+                }
+            }
+            
+            addPulsar(startX, startY) {
+                const pattern = [
+                    "  OOO   OOO  ",
+                    "             ",
+                    "O    O O    O",
+                    "O    O O    O",
+                    "O    O O    O",
+                    "  OOO   OOO  ",
+                    "             ",
+                    "  OOO   OOO  ",
+                    "O    O O    O",
+                    "O    O O    O",
+                    "O    O O    O",
+                    "             ",
+                    "  OOO   OOO  "
+                ];
+                
+                for (let y = 0; y < pattern.length; y++) {
+                    for (let x = 0; x < pattern[y].length; x++) {
+                        if (pattern[y][x] === 'O') {
+                            const posX = (startX + x) % this.width;
+                            const posY = (startY + y) % this.height;
+                            this.grid[posY][posX] = 1;
+                        }
+                    }
+                }
+            }
+            
+            togglePlayPause() {
+                this.isRunning = !this.isRunning;
+                
+                const btn = document.getElementById('playPauseBtn');
+                if (this.isRunning) {
+                    btn.textContent = '⏸️ Pausa';
+                    btn.className = 'pause-btn';
+                    this.gameLoop();
+                } else {
+                    btn.textContent = '▶️ Avvia';
+                    btn.className = '';
+                }
+                
+                this.updateUI();
+            }
+            
+            gameLoop() {
+                if (!this.isRunning) return;
+                
+                this.updateGrid();
+                this.draw();
+                
+                setTimeout(() => this.gameLoop(), 1000 / this.speed);
+            }
+            
+            reset() {
+                this.isRunning = false;
+                this.generation = 0;
+                document.getElementById('playPauseBtn').textContent = '▶️ Avvia';
+                document.getElementById('playPauseBtn').className = '';
+                this.initializePatterns();
+                this.updateUI();
+            }
+            
+            clear() {
+                this.grid = this.createEmptyGrid();
+                this.generation = 0;
+                this.draw();
+                this.updateUI();
+            }
+            
+            randomize() {
+                for (let y = 0; y < this.height; y++) {
+                    for (let x = 0; x < this.width; x++) {
+                        this.grid[y][x] = Math.random() < 0.3 ? 1 : 0;
+                    }
+                }
+                this.generation = 0;
+                this.draw();
+                this.updateUI();
+            }
+            
+            updateUI() {
+                document.getElementById('generation').textContent = this.generation;
+                
+                const status = document.getElementById('status');
+                if (this.isRunning) {
+                    status.textContent = '▶️ In esecuzione - L\'universo si evolve!';
+                } else {
+                    status.textContent = '⏸️ In pausa - Clicca sulle celle per disegnarle';
+                }
+            }
+        }
+        
+        // Inizializza il gioco quando la pagina è caricata
+        window.addEventListener('DOMContentLoaded', () => {
+            const game = new GameOfLife('gameCanvas', 8);
+            
+            // Messaggio di benvenuto
+            console.log('🌍 Game of Life Toroidale caricato!');
+            console.log('Usa i controlli per esplorare l\'universo infinito!');
+        });
+    </script>
+</body>
+</html>
+
