@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game of Life — Vista a Sfera (v3)</title>
+  <style>
+    :root { --bg1:#0f2027; --bg2:#203a43; --bg3:#2c5364; --accent:#4CAF50; }
+    body { margin:0; padding:20px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: linear-gradient(135deg, var(--bg1), var(--bg2), var(--bg3)); color:#fff; min-height:100vh; }
+    .container { max-width:1200px; margin:0 auto; text-align:center; }
+    h1 { font-size:2.2em; margin:0 0 6px; text-shadow: 2px 2px 6px rgba(0,0,0,0.5); }
+    .subtitle { opacity:.9; margin:0 0 14px; }
+    .game-area { background: rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); border-radius:16px; padding:16px; backdrop-filter: blur(8px); }
+    #gameCanvas { display:block; width:100%; height:auto; aspect-ratio: 4 / 3; border:2px solid #fff; border-radius:10px; box-shadow: 0 8px 32px rgba(0,0,0,.35); touch-action: none; user-select: none; }
+    .controls { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin:14px 0 8px; }
+    button { background: linear-gradient(45deg, #4CAF50, #45a049); color:#fff; border:none; padding:12px 18px; border-radius:22px; cursor:pointer; font-weight:600; box-shadow: 0 4px 15px rgba(0,0,0,.25); transition: transform .15s ease, box-shadow .15s ease; }
+    button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+    button:active { transform: translateY(0); }
+    .pause-btn { background: linear-gradient(45deg, #ff9800, #f57c00) !important; }
+    .reset-btn { background: linear-gradient(45deg, #2196F3, #1976D2) !important; }
+    .clear-btn { background: linear-gradient(45deg, #f44336, #d32f2f) !important; }
+    .random-btn { background: linear-gradient(45deg, #9c27b0, #7b1fa2) !important; }
+    .step-btn { background: linear-gradient(45deg, #00bcd4, #0097a7) !important; }
+    .speed-control { margin:8px 0 0; }
+    .speed-control input { width:220px; margin:0 8px; }
+    .status { display:inline-block; margin:12px 0 6px; padding:10px; background: rgba(255,255,255,.1); border-radius:8px; font-size:1.05em; }
+    .generation-counter { color:var(--accent); margin:6px 0; font-size:1.15em; }
+    .info { background: rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.2); border-radius:12px; padding:14px; margin-top:14px; text-align:left; max-width:800px; margin-left:auto; margin-right:auto; }
+    .info h3 { color: var(--accent); margin: 0 0 6px; }
+    @media (max-width:768px){ button{ width:200px; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🌍 Game of Life — Vista a Sfera</h1>
+    <div class="subtitle">Versione 3: proiezione su sfera, risoluzione raddoppiata</div>
+
+    <div class="game-area">
+      <canvas id="gameCanvas" aria-label="Game of Life su sfera"></canvas>
+
+      <div class="controls">
+        <button id="playPauseBtn" class="pause-btn" aria-label="Avvia o pausa">▶️ Avvia</button>
+        <button id="stepBtn" class="step-btn" aria-label="Passo singolo">⏭️ Passo</button>
+        <button id="resetBtn" class="reset-btn" aria-label="Reset pattern">🔄 Reset</button>
+        <button id="clearBtn" class="clear-btn" aria-label="Cancella griglia">🧹 Cancella</button>
+        <button id="randomBtn" class="random-btn" aria-label="Casuale">🎲 Casuale</button>
+      </div>
+
+      <div class="speed-control">
+        <label for="speedSlider">Velocità:</label>
+        <input type="range" id="speedSlider" min="1" max="30" value="12">
+        <span id="speedValue">12 FPS</span>
+      </div>
+
+      <div class="status" id="status">⏸️ In pausa — Disegna (sinistro), cancella (destro) sulla sfera</div>
+      <div class="generation-counter">Generazione: <span id="generation">0</span> • Vive: <span id="population">0</span></div>
+    </div>
+
+    <div class="info">
+      <h3>🎮 Controlli</h3>
+      <p><strong>Trascina:</strong> sinistro = disegna, destro = cancella • <strong>Spazio</strong> avvia/pausa • <strong>S</strong> passo • <strong>R</strong> reset • <strong>C</strong> cancella • <strong>T</strong> casuale</p>
+      <h3>🟢 Vista a Sfera</h3>
+      <p>La griglia toroidale è resa come texture su una sfera (proiezione ortografica). Solo l'emisfero frontale è visibile.</p>
+    </div>
+  </div>
+
+  <script>
+  class GameOfLifeSphere {
+    constructor(canvasId, cellSize = 2) { // cellSize più piccolo → molte più celle
+      this.canvas = document.getElementById(canvasId);
+      this.ctx = this.canvas.getContext('2d');
+      this.cellSize = cellSize;
+
+      this.width = 0;  // in celle
+      this.height = 0; // in celle
+      this.grid = [];
+      this.isRunning = false;
+      this.generation = 0;
+      this.population = 0;
+      this.speed = 12; // FPS target
+
+      // RAF state
+      this._rafId = null;
+      this._lastTime = 0;
+      this._accum = 0;
+
+      // Pointer painting
+      this._isDrawing = false;
+      this._drawValue = 1;
+      this._lastPaintX = -1;
+      this._lastPaintY = -1;
+
+      // Sphere projection cache
+      this._proj = null; // {cx,cy,R, dlon, dlat, px[x], py[y], lat[y]} precomputations
+
+      this.setupEventListeners();
+      this.resizeCanvas(true);
+      this.initializePatterns();
+      this.draw();
+    }
+
+    createEmptyGrid(w = this.width, h = this.height) {
+      return Array(h).fill(0).map(() => Array(w).fill(0));
+    }
+
+    setupEventListeners() {
+      this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+      this.canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
+      this.canvas.addEventListener('pointermove', (e) => this.onPointerMove(e));
+      this.canvas.addEventListener('pointerup',   (e) => this.onPointerUp(e));
+      this.canvas.addEventListener('pointerleave',(e) => this.onPointerUp(e));
+
+      document.addEventListener('keydown', (e) => this.handleKeyPress(e));
+
+      document.getElementById('playPauseBtn').addEventListener('click', () => this.togglePlayPause());
+      document.getElementById('stepBtn').addEventListener('click', () => this.step());
+      document.getElementById('resetBtn').addEventListener('click', () => this.reset());
+      document.getElementById('clearBtn').addEventListener('click', () => this.clear());
+      document.getElementById('randomBtn').addEventListener('click', () => this.randomize());
+
+      const speedSlider = document.getElementById('speedSlider');
+      speedSlider.addEventListener('input', (e) => {
+        this.speed = parseInt(e.target.value, 10);
+        document.getElementById('speedValue').textContent = this.speed + ' FPS';
+      });
+
+      window.addEventListener('resize', () => this.resizeCanvas(true));
+    }
+
+    // Map pointer to cell by inverting the projection approximately (use flat fallback)
+    getCellFromEvent(e) {
+      const rect = this.canvas.getBoundingClientRect();
+      const xPix = e.clientX - rect.left;
+      const yPix = e.clientY - rect.top;
+      const { cx, cy, R } = this._proj;
+
+      // Normalized coordinates in sphere space [-1,1]
+      const nx = (xPix - cx) / R;
+      // Inverti l'asse Y per compensare py = cy - R*ny durante la proiezione
+      const ny = (cy - yPix) / R;
+      const r2 = nx*nx + ny*ny;
+      if (r2 > 1) return { x: -1, y: -1 }; // fuori dalla sfera
+
+      // On the sphere surface: z = sqrt(1 - r2) (front hemisphere)
+      const z = Math.sqrt(Math.max(0, 1 - r2));
+      // Convert back to lon/lat: x=cos(lat)sin(lon)=nx, y=sin(lat)=ny, z=cos(lat)cos(lon)
+      const lat = Math.asin(Math.max(-1, Math.min(1, ny)));
+      const cosLat = Math.cos(lat);
+      let lon = Math.atan2(nx, z); // since nx = cos(lat)sin(lon) and z = cos(lat)cos(lon)
+
+      // Map lon,lat to cell indices
+      const x = Math.floor((lon + Math.PI) / (2*Math.PI) * this.width);
+      const y = Math.floor((lat + Math.PI/2) / Math.PI * this.height);
+      return { x, y };
+    }
+
+    onPointerDown(e) {
+      e.preventDefault();
+      this._drawValue = (e.button === 2 || e.buttons === 2) ? 0 : 1;
+      this._isDrawing = true;
+      const { x, y } = this.getCellFromEvent(e);
+      this.paintCell(x, y, this._drawValue);
+    }
+    onPointerMove(e) {
+      if (!this._isDrawing) return;
+      const { x, y } = this.getCellFromEvent(e);
+      if (x === this._lastPaintX && y === this._lastPaintY) return;
+      this.paintCell(x, y, this._drawValue);
+    }
+    onPointerUp(_e) {
+      this._isDrawing = false;
+      this._lastPaintX = -1;
+      this._lastPaintY = -1;
+    }
+
+    paintCell(x, y, value) {
+      if (x < 0 || x >= this.width || y < 0 || y >= this.height) return;
+      if (this.grid[y][x] !== value) {
+        this.grid[y][x] = value;
+        this._lastPaintX = x; this._lastPaintY = y;
+        this.draw();
+        this.updateUI();
+      }
+    }
+
+    handleKeyPress(e) {
+      switch (e.code) {
+        case 'Space': e.preventDefault(); this.togglePlayPause(); break;
+        case 'KeyS': this.step(); break;
+        case 'KeyR': this.reset(); break;
+        case 'KeyC': this.clear(); break;
+        case 'KeyT': this.randomize(); break;
+      }
+    }
+
+    countNeighbors(x, y) {
+      let c = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = (x + dx + this.width) % this.width;
+          const ny = (y + dy + this.height) % this.height;
+          c += this.grid[ny][nx];
+        }
+      }
+      return c;
+    }
+
+    updateGrid() {
+      const newGrid = this.createEmptyGrid();
+      let newPop = 0;
+      for (let y = 0; y < this.height; y++) {
+        for (let x = 0; x < this.width; x++) {
+          const n = this.countNeighbors(x, y);
+          const v = this.grid[y][x];
+          newGrid[y][x] = v ? (n === 2 || n === 3 ? 1 : 0) : (n === 3 ? 1 : 0);
+          newPop += newGrid[y][x];
+        }
+      }
+      this.grid = newGrid;
+      this.population = newPop;
+      this.generation++;
+    }
+
+    // Precompute projection values to speed up drawing
+    rebuildProjection() {
+      const W = this.canvas.width / (window.devicePixelRatio || 1);
+      const H = this.canvas.height / (window.devicePixelRatio || 1);
+      const R = Math.min(W, H) * 0.46;
+      const cx = W / 2, cy = H / 2;
+      const dlon = 2*Math.PI / this.width;
+      const dlat = Math.PI / this.height;
+
+      const px = new Float32Array(this.width);
+      const sx = new Float32Array(this.width); // sin(lon) per colonna
+      const cxlon = new Float32Array(this.width); // cos(lon)
+      for (let x = 0; x < this.width; x++) {
+        const lon = (x + 0.5) * dlon - Math.PI; // [-pi, pi]
+        sx[x] = Math.sin(lon);
+        cxlon[x] = Math.cos(lon);
+        px[x] = lon; // store lon per riuso
+      }
+
+      const py = new Float32Array(this.height);
+      const sy = new Float32Array(this.height); // sin(lat)
+      const cyy = new Float32Array(this.height); // cos(lat)
+      for (let y = 0; y < this.height; y++) {
+        const lat = (y + 0.5) * dlat - Math.PI/2; // [-pi/2, pi/2]
+        sy[y] = Math.sin(lat);
+        cyy[y] = Math.cos(lat);
+        py[y] = lat;
+      }
+
+      this._proj = { cx, cy, R, dlon, dlat, px, sx, cxlon, py, sy, cyy };
+    }
+
+    draw() {
+      const ctx = this.ctx;
+      const dpr = window.devicePixelRatio || 1;
+      const W = this.canvas.width / dpr;
+      const H = this.canvas.height / dpr;
+      const { cx, cy, R, dlon, dlat, sx, cxlon, sy, cyy } = this._proj;
+
+      ctx.clearRect(0, 0, W, H);
+
+      // Background
+      const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+      bgGrad.addColorStop(0, '#000');
+      bgGrad.addColorStop(1, '#021018');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, W, H);
+
+      // Sphere base shading
+      const radial = ctx.createRadialGradient(cx - R*0.3, cy - R*0.3, R*0.2, cx, cy, R);
+      radial.addColorStop(0, '#1b2a38');
+      radial.addColorStop(1, '#0a1016');
+      ctx.fillStyle = radial;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI*2);
+      ctx.fill();
+
+      // Optional meridians/parallels
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 1;
+      for (let m = -4; m <= 4; m++) { // parallels
+        const lat = m * Math.PI/10;
+        const y = cy - R * Math.sin(lat);
+        const r = R * Math.cos(lat);
+        ctx.beginPath();
+        ctx.ellipse(cx, y, r, r*0.02, 0, 0, Math.PI*2);
+        ctx.stroke();
+      }
+      for (let m = -5; m <= 5; m++) { // meridians
+        const lon = m * Math.PI/10;
+        const s = Math.sin(lon), c = Math.cos(lon);
+        ctx.beginPath();
+        for (let t = -Math.PI/2; t <= Math.PI/2; t += Math.PI/60) {
+          const x = cx + R * Math.cos(t) * s;
+          const y = cy - R * Math.sin(t);
+          if (t === -Math.PI/2) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+
+      // Light direction for Lambert shading (normalized)
+      const Lx = -0.4, Ly = 0.5, Lz = 1.0; // from top-left-front
+      const Lnorm = Math.hypot(Lx, Ly, Lz);
+      const ldx = Lx/Lnorm, ldy = Ly/Lnorm, ldz = Lz/Lnorm;
+
+      // Draw live cells projected on front hemisphere
+      // Precompute patch size in pixels
+      const baseW = R * dlon; // at equator for cos(lat)=1
+      const baseH = R * dlat;
+      for (let y = 0; y < this.height; y++) {
+        if (!this.grid[y].some(v => v === 1)) continue; // minor skip
+        const sinLat = sy[y];
+        const cosLat = cyy[y];
+        const patchH = Math.max(1, baseH); // vertical size approx
+        for (let x = 0; x < this.width; x++) {
+          if (this.grid[y][x] !== 1) continue;
+          const sinLon = sx[x];
+          const cosLon = cxlon[x];
+          const nx = cosLat * sinLon; // surface normal x
+          const ny = sinLat;          // surface normal y
+          const nz = cosLat * cosLon; // surface normal z (visibility)
+          if (nz < 0) continue; // back hemisphere hidden
+
+          // Project to screen
+          const px = cx + R * nx;
+          const py = cy - R * ny;
+
+          // Patch width shrinks with cos(lat)
+          const patchW = Math.max(1, baseW * Math.max(0.2, cosLat));
+          const size = Math.max(1, Math.min(patchW, patchH) * 0.9);
+
+          // Lambert shading
+          const shade = Math.max(0, nx*ldx + ny*ldy + nz*ldz);
+          const g = Math.floor(160 + 95 * shade);
+          ctx.fillStyle = `rgb(0, ${g}, 0)`;
+          ctx.fillRect(px - size/2, py - size/2, size, size);
+        }
+      }
+
+      // Sphere rim highlight
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI*2);
+      ctx.stroke();
+    }
+
+    gameLoop(ts) {
+      if (!this.isRunning) return;
+      if (this._lastTime === 0) this._lastTime = ts;
+      const dt = (ts - this._lastTime) / 1000;
+      this._lastTime = ts;
+      this._accum += dt;
+      const step = 1 / this.speed;
+      while (this._accum >= step) { this.updateGrid(); this._accum -= step; }
+      this.draw();
+      this.updateUI();
+      this._rafId = requestAnimationFrame((t) => this.gameLoop(t));
+    }
+
+    togglePlayPause() {
+      this.isRunning = !this.isRunning;
+      const btn = document.getElementById('playPauseBtn');
+      if (this.isRunning) {
+        btn.textContent = '⏸️ Pausa'; btn.className = 'pause-btn';
+        this._lastTime = 0; this._accum = 0;
+        this._rafId = requestAnimationFrame((t) => this.gameLoop(t));
+      } else {
+        btn.textContent = '▶️ Avvia'; btn.className = '';
+        if (this._rafId) cancelAnimationFrame(this._rafId);
+      }
+      this.updateUI();
+    }
+
+    step() {
+      if (this.isRunning) return;
+      this.updateGrid();
+      this.draw();
+      this.updateUI();
+    }
+
+    reset() {
+      this.isRunning = false;
+      this.generation = 0;
+      document.getElementById('playPauseBtn').textContent = '▶️ Avvia';
+      document.getElementById('playPauseBtn').className = '';
+      this.initializePatterns();
+      this.updateUI();
+    }
+
+    clear() {
+      this.grid = this.createEmptyGrid();
+      this.generation = 0;
+      this.population = 0;
+      this.draw();
+      this.updateUI();
+    }
+
+    randomize() {
+      let pop = 0;
+      for (let y = 0; y < this.height; y++) {
+        for (let x = 0; x < this.width; x++) {
+          const v = Math.random() < 0.28 ? 1 : 0;
+          this.grid[y][x] = v; pop += v;
+        }
+      }
+      this.generation = 0; this.population = pop;
+      this.draw(); this.updateUI();
+    }
+
+    updateUI() {
+      document.getElementById('generation').textContent = this.generation;
+      if (!this.isRunning) this.population = this.computePopulation();
+      document.getElementById('population').textContent = this.population;
+      const status = document.getElementById('status');
+      status.textContent = this.isRunning ? `▶️ In esecuzione — FPS: ${this.speed} • Vive: ${this.population}` : '⏸️ In pausa — Disegna (sinistro), cancella (destro) sulla sfera';
+    }
+
+    computePopulation() {
+      let p = 0; for (let y = 0; y < this.height; y++) for (let x = 0; x < this.width; x++) p += this.grid[y][x]; return p;
+    }
+
+    resizeCanvas(preserve = true) {
+      const dpr = window.devicePixelRatio || 1;
+      const parent = this.canvas.parentElement;
+      const cssWidth = Math.max(320, Math.floor(parent.clientWidth));
+      const cssHeight = Math.floor(cssWidth * 3 / 4);
+      this.canvas.width = Math.floor(cssWidth * dpr);
+      this.canvas.height = Math.floor(cssHeight * dpr);
+      this.canvas.style.width = cssWidth + 'px';
+      this.canvas.style.height = cssHeight + 'px';
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const newW = Math.floor(cssWidth / this.cellSize);
+      const newH = Math.floor(cssHeight / this.cellSize);
+      if (newW === this.width && newH === this.height && this.grid.length) { this.rebuildProjection(); this.draw(); return; }
+
+      const oldGrid = this.grid; const oldW = this.width; const oldH = this.height;
+      this.width = newW; this.height = newH; this.grid = this.createEmptyGrid();
+      if (preserve && oldGrid && oldGrid.length) {
+        const copyW = Math.min(oldW, this.width), copyH = Math.min(oldH, this.height);
+        for (let y = 0; y < copyH; y++) for (let x = 0; x < copyW; x++) this.grid[y][x] = oldGrid[y][x];
+      }
+      this.rebuildProjection();
+      this.draw();
+    }
+
+    initializePatterns() {
+      this.clear();
+      const cx = Math.floor(this.width / 2), cy = Math.floor(this.height / 2);
+      this.addGlider(cx, cy);
+      this.addGlider((this.width - 3 + this.width) % this.width, (cy + 12) % this.height);
+      this.addBlinker(Math.max(0, cx - 12), this.height - 2);
+      this.addPulsar((cx + 24) % this.width, Math.max(0, cy - 18));
+      this.draw();
+    }
+
+    addGlider(startX, startY) {
+      const pattern = [[0,1,0],[0,0,1],[1,1,1]];
+      for (let y = 0; y < pattern.length; y++) for (let x = 0; x < pattern[y].length; x++) {
+        const posX = (startX + x + this.width) % this.width;
+        const posY = (startY + y + this.height) % this.height;
+        this.grid[posY][posX] = pattern[y][x];
+      }
+    }
+    addBlinker(startX, startY) {
+      for (let i = 0; i < 3; i++) {
+        const posX = (startX + i + this.width) % this.width; const posY = (startY + this.height) % this.height; this.grid[posY][posX] = 1;
+      }
+    }
+    addPulsar(startX, startY) {
+      const pattern = [
+        "  OOO   OOO  ",
+        "             ",
+        "O    O O    O",
+        "O    O O    O",
+        "O    O O    O",
+        "  OOO   OOO  ",
+        "             ",
+        "  OOO   OOO  ",
+        "O    O O    O",
+        "O    O O    O",
+        "O    O O    O",
+        "             ",
+        "  OOO   OOO  "
+      ];
+      for (let y = 0; y < pattern.length; y++) for (let x = 0; x < pattern[y].length; x++) if (pattern[y][x] === 'O') {
+        const posX = (startX + x + this.width) % this.width; const posY = (startY + y + this.height) % this.height; this.grid[posY][posX] = 1;
+      }
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    const game = new GameOfLifeSphere('gameCanvas', 2); // cellSize=2 → raddoppia i conteggi per asse
+    console.log('🟢 Game of Life v3 (sfera) pronto');
+  });
+  </script>
+</body>
+</html>

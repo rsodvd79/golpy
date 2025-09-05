@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game of Life Toroidale — v2</title>
+    <style>
+        :root {
+            --bg1: #1e3c72;
+            --bg2: #2a5298;
+            --accent: #4CAF50;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, var(--bg1), var(--bg2));
+            color: white;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.4em;
+            margin-bottom: 8px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            margin-bottom: 18px;
+            opacity: 0.9;
+        }
+
+        .game-area {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 16px;
+            margin: 20px 0;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        /* Canvas responsivo: la dimensione visuale è 100%, i pixel reali sono gestiti via JS */
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 4 / 3; /* fallback 4:3 come 800x600 */
+            border: 2px solid #fff;
+            border-radius: 8px;
+            cursor: crosshair;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            touch-action: none; /* Evita scroll/zoom durante il disegno */
+            user-select: none;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin: 16px 0 8px;
+        }
+
+        button {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 24px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+        button:active { transform: translateY(0); }
+
+        .pause-btn { background: linear-gradient(45deg, #ff9800, #f57c00) !important; }
+        .reset-btn { background: linear-gradient(45deg, #2196F3, #1976D2) !important; }
+        .clear-btn { background: linear-gradient(45deg, #f44336, #d32f2f) !important; }
+        .random-btn { background: linear-gradient(45deg, #9c27b0, #7b1fa2) !important; }
+        .step-btn { background: linear-gradient(45deg, #00bcd4, #0097a7) !important; }
+
+        .speed-control { margin: 10px 0 0; }
+        .speed-control input { width: 220px; margin: 0 8px; }
+
+        .status {
+            margin: 12px 0 6px;
+            font-size: 1.05em;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            display: inline-block;
+        }
+
+        .generation-counter { font-size: 1.2em; margin: 6px 0; color: var(--accent); }
+
+        .info {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 14px;
+            margin-top: 16px;
+            text-align: left;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .info h3 { color: var(--accent); margin: 0 0 6px; }
+
+        @media (max-width: 768px) {
+            button { width: 200px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌍 Game of Life Toroidale — v2</h1>
+        <p class="subtitle">Versione migliorata: input coerente, canvas responsivo, loop fluido</p>
+
+        <div class="game-area">
+            <canvas id="gameCanvas" aria-label="Game of Life"></canvas>
+
+            <div class="controls">
+                <button id="playPauseBtn" class="pause-btn" aria-label="Avvia o metti in pausa">▶️ Avvia</button>
+                <button id="stepBtn" class="step-btn" aria-label="Avanza di un passo">⏭️ Passo</button>
+                <button id="resetBtn" class="reset-btn" aria-label="Reset con pattern">🔄 Reset</button>
+                <button id="clearBtn" class="clear-btn" aria-label="Cancella griglia">🧹 Cancella</button>
+                <button id="randomBtn" class="random-btn" aria-label="Riempimento casuale">🎲 Casuale</button>
+            </div>
+
+            <div class="speed-control">
+                <label for="speedSlider">Velocità:</label>
+                <input type="range" id="speedSlider" min="1" max="20" value="10" aria-label="Velocità in FPS">
+                <span id="speedValue">10 FPS</span>
+            </div>
+
+            <div class="status" id="status">⏸️ In pausa — Trascina per disegnare (sinistro), destro per cancellare</div>
+            <div class="generation-counter">Generazione: <span id="generation">0</span> • Vive: <span id="population">0</span></div>
+        </div>
+
+        <div class="info">
+            <h3>🎮 Controlli</h3>
+            <p><strong>Trascina:</strong> Disegna con tasto sinistro, cancella con destro</p>
+            <p><strong>Click singolo:</strong> Disegna/cancella in base al tasto</p>
+            <p><strong>Spazio:</strong> Pausa/Riprendi • <strong>S:</strong> Passo</p>
+            <p><strong>R:</strong> Reset pattern • <strong>C:</strong> Cancella • <strong>T:</strong> Casuale</p>
+
+            <h3>🌐 Griglia Toroidale</h3>
+            <p>I bordi si avvolgono: ciò che esce da un lato rientra dall'altro.</p>
+
+            <h3>📏 Regole del Game of Life</h3>
+            <ul>
+                <li><strong>Sopravvivenza:</strong> Viva con 2–3 vicini vivi</li>
+                <li><strong>Nascita:</strong> Morta con 3 vicini vivi</li>
+                <li><strong>Morte:</strong> Altrimenti muore o resta morta</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+    class GameOfLife {
+        constructor(canvasId, cellSize = 8) {
+            this.canvas = document.getElementById(canvasId);
+            this.ctx = this.canvas.getContext('2d');
+            this.cellSize = cellSize;
+
+            this.width = 0;   // in celle
+            this.height = 0;  // in celle
+            this.grid = [];
+            this.isRunning = false;
+            this.generation = 0;
+            this.population = 0;
+            this.speed = 10; // FPS
+
+            // Loop con requestAnimationFrame
+            this._rafId = null;
+            this._lastTime = 0;
+            this._accum = 0;
+
+            // Input painting state
+            this._isDrawing = false;
+            this._drawValue = 1; // 1=accendi, 0=spegni
+            this._lastPaintX = -1;
+            this._lastPaintY = -1;
+
+            this.setupEventListeners();
+            this.resizeCanvas(true);
+            this.initializePatterns();
+            this.draw();
+        }
+
+        createEmptyGrid(w = this.width, h = this.height) {
+            return Array(h).fill(0).map(() => Array(w).fill(0));
+        }
+
+        setupEventListeners() {
+            // Pointer events (mouse + touch)
+            this.canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
+            this.canvas.addEventListener('pointermove', (e) => this.onPointerMove(e));
+            this.canvas.addEventListener('pointerup',   (e) => this.onPointerUp(e));
+            this.canvas.addEventListener('pointerleave',(e) => this.onPointerUp(e));
+            this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+            // Keyboard
+            document.addEventListener('keydown', (e) => this.handleKeyPress(e));
+
+            // Buttons
+            document.getElementById('playPauseBtn').addEventListener('click', () => this.togglePlayPause());
+            document.getElementById('stepBtn').addEventListener('click', () => this.step());
+            document.getElementById('resetBtn').addEventListener('click', () => this.reset());
+            document.getElementById('clearBtn').addEventListener('click', () => this.clear());
+            document.getElementById('randomBtn').addEventListener('click', () => this.randomize());
+
+            // Speed control
+            const speedSlider = document.getElementById('speedSlider');
+            speedSlider.addEventListener('input', (e) => {
+                this.speed = parseInt(e.target.value, 10);
+                document.getElementById('speedValue').textContent = this.speed + ' FPS';
+            });
+
+            // Resize responsivo
+            window.addEventListener('resize', () => this.resizeCanvas(true));
+        }
+
+        getCellFromEvent(e) {
+            const rect = this.canvas.getBoundingClientRect();
+            const x = Math.floor((e.clientX - rect.left) / this.cellSize);
+            const y = Math.floor((e.clientY - rect.top) / this.cellSize);
+            return { x, y };
+        }
+
+        onPointerDown(e) {
+            e.preventDefault();
+            // tasto: 0=primario, 2=secondario. Su touch è 0
+            this._drawValue = (e.button === 2 || e.buttons === 2) ? 0 : 1;
+            this._isDrawing = true;
+            const { x, y } = this.getCellFromEvent(e);
+            this.paintCell(x, y, this._drawValue);
+        }
+
+        onPointerMove(e) {
+            if (!this._isDrawing) return;
+            const { x, y } = this.getCellFromEvent(e);
+            if (x === this._lastPaintX && y === this._lastPaintY) return;
+            this.paintCell(x, y, this._drawValue);
+        }
+
+        onPointerUp(_e) {
+            this._isDrawing = false;
+            this._lastPaintX = -1;
+            this._lastPaintY = -1;
+        }
+
+        paintCell(x, y, value) {
+            if (x < 0 || x >= this.width || y < 0 || y >= this.height) return;
+            if (this.grid[y][x] !== value) {
+                this.grid[y][x] = value;
+                this._lastPaintX = x;
+                this._lastPaintY = y;
+                this.draw();
+                this.updateUI();
+            }
+        }
+
+        handleKeyPress(e) {
+            switch (e.code) {
+                case 'Space':
+                    e.preventDefault();
+                    this.togglePlayPause();
+                    break;
+                case 'KeyS':
+                    this.step();
+                    break;
+                case 'KeyR':
+                    this.reset();
+                    break;
+                case 'KeyC':
+                    this.clear();
+                    break;
+                case 'KeyT':
+                    this.randomize();
+                    break;
+            }
+        }
+
+        // Conta i vicini con wrapping toroidale
+        countNeighbors(x, y) {
+            let count = 0;
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    const nx = (x + dx + this.width) % this.width;
+                    const ny = (y + dy + this.height) % this.height;
+                    count += this.grid[ny][nx];
+                }
+            }
+            return count;
+        }
+
+        updateGrid() {
+            const newGrid = this.createEmptyGrid();
+            let newPop = 0;
+            for (let y = 0; y < this.height; y++) {
+                for (let x = 0; x < this.width; x++) {
+                    const n = this.countNeighbors(x, y);
+                    const c = this.grid[y][x];
+                    if (c === 1) {
+                        newGrid[y][x] = (n === 2 || n === 3) ? 1 : 0;
+                    } else {
+                        newGrid[y][x] = (n === 3) ? 1 : 0;
+                    }
+                    newPop += newGrid[y][x];
+                }
+            }
+            this.grid = newGrid;
+            this.population = newPop;
+            this.generation++;
+        }
+
+        draw() {
+            const ctx = this.ctx;
+            const W = this.canvas.width / (window.devicePixelRatio || 1);
+            const H = this.canvas.height / (window.devicePixelRatio || 1);
+
+            ctx.clearRect(0, 0, W, H);
+
+            // Sfondo
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, W, H);
+
+            // Celle vive
+            ctx.fillStyle = '#00ff00';
+            for (let y = 0; y < this.height; y++) {
+                for (let x = 0; x < this.width; x++) {
+                    if (this.grid[y][x] === 1) {
+                        ctx.fillRect(
+                            x * this.cellSize,
+                            y * this.cellSize,
+                            this.cellSize - 1,
+                            this.cellSize - 1
+                        );
+                    }
+                }
+            }
+
+            // Griglia leggera se le celle sono abbastanza grandi
+            if (this.cellSize >= 8) {
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 0.5;
+                for (let x = 0; x <= this.width; x++) {
+                    ctx.beginPath();
+                    ctx.moveTo(x * this.cellSize, 0);
+                    ctx.lineTo(x * this.cellSize, this.height * this.cellSize);
+                    ctx.stroke();
+                }
+                for (let y = 0; y <= this.height; y++) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y * this.cellSize);
+                    ctx.lineTo(this.width * this.cellSize, y * this.cellSize);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        gameLoop(timestamp) {
+            if (!this.isRunning) return;
+            if (this._lastTime === 0) this._lastTime = timestamp;
+            const dt = (timestamp - this._lastTime) / 1000;
+            this._lastTime = timestamp;
+            this._accum += dt;
+            const step = 1 / this.speed;
+            // Integra a passi fissi per rispettare gli FPS
+            while (this._accum >= step) {
+                this.updateGrid();
+                this._accum -= step;
+            }
+            this.draw();
+            this.updateUI();
+            this._rafId = requestAnimationFrame((t) => this.gameLoop(t));
+        }
+
+        togglePlayPause() {
+            this.isRunning = !this.isRunning;
+            const btn = document.getElementById('playPauseBtn');
+            if (this.isRunning) {
+                btn.textContent = '⏸️ Pausa';
+                btn.className = 'pause-btn';
+                this._lastTime = 0;
+                this._accum = 0;
+                this._rafId = requestAnimationFrame((t) => this.gameLoop(t));
+            } else {
+                btn.textContent = '▶️ Avvia';
+                btn.className = '';
+                if (this._rafId) cancelAnimationFrame(this._rafId);
+            }
+            this.updateUI();
+        }
+
+        step() {
+            if (this.isRunning) return; // Solo in pausa
+            this.updateGrid();
+            this.draw();
+            this.updateUI();
+        }
+
+        reset() {
+            this.isRunning = false;
+            this.generation = 0;
+            document.getElementById('playPauseBtn').textContent = '▶️ Avvia';
+            document.getElementById('playPauseBtn').className = '';
+            this.initializePatterns();
+            this.updateUI();
+        }
+
+        clear() {
+            this.grid = this.createEmptyGrid();
+            this.generation = 0;
+            this.population = 0;
+            this.draw();
+            this.updateUI();
+        }
+
+        randomize() {
+            let pop = 0;
+            for (let y = 0; y < this.height; y++) {
+                for (let x = 0; x < this.width; x++) {
+                    const v = Math.random() < 0.3 ? 1 : 0;
+                    this.grid[y][x] = v;
+                    pop += v;
+                }
+            }
+            this.generation = 0;
+            this.population = pop;
+            this.draw();
+            this.updateUI();
+        }
+
+        updateUI() {
+            document.getElementById('generation').textContent = this.generation;
+            // Se non stiamo calcolando la popolazione incrementale, ricontiamola qui in pausa
+            if (!this.isRunning) this.population = this.computePopulation();
+            document.getElementById('population').textContent = this.population;
+
+            const status = document.getElementById('status');
+            if (this.isRunning) {
+                status.textContent = '▶️ In esecuzione — FPS: ' + this.speed + ' • Vive: ' + this.population;
+            } else {
+                status.textContent = '⏸️ In pausa — Trascina per disegnare (sinistro), destro per cancellare';
+            }
+        }
+
+        computePopulation() {
+            let pop = 0;
+            for (let y = 0; y < this.height; y++) {
+                for (let x = 0; x < this.width; x++) pop += this.grid[y][x];
+            }
+            return pop;
+        }
+
+        resizeCanvas(preserve = true) {
+            const dpr = window.devicePixelRatio || 1;
+            const parent = this.canvas.parentElement;
+            const cssWidth = Math.max(300, Math.floor(parent.clientWidth));
+            const cssHeight = Math.floor(cssWidth * 3 / 4); // 4:3
+
+            // Dimensioni pixel reali
+            this.canvas.width = Math.floor(cssWidth * dpr);
+            this.canvas.height = Math.floor(cssHeight * dpr);
+            this.canvas.style.width = cssWidth + 'px';
+            this.canvas.style.height = cssHeight + 'px';
+
+            // Scala per DPI così che 1 unità = 1 CSS pixel
+            this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            const newWidth = Math.floor(cssWidth / this.cellSize);
+            const newHeight = Math.floor(cssHeight / this.cellSize);
+
+            if (newWidth === this.width && newHeight === this.height && this.grid.length) return;
+
+            const oldGrid = this.grid;
+            const oldW = this.width;
+            const oldH = this.height;
+
+            this.width = newWidth;
+            this.height = newHeight;
+            this.grid = this.createEmptyGrid();
+
+            if (preserve && oldGrid && oldGrid.length) {
+                const copyW = Math.min(oldW, this.width);
+                const copyH = Math.min(oldH, this.height);
+                for (let y = 0; y < copyH; y++) {
+                    for (let x = 0; x < copyW; x++) {
+                        this.grid[y][x] = oldGrid[y][x];
+                    }
+                }
+            }
+
+            this.draw();
+        }
+
+        // Pattern iniziali
+        initializePatterns() {
+            this.clear();
+            const cx = Math.floor(this.width / 2);
+            const cy = Math.floor(this.height / 2);
+            this.addGlider(cx, cy);
+            this.addGlider((this.width - 2 + this.width) % this.width, (cy + 10) % this.height);
+            this.addBlinker(Math.max(0, cx - 10), this.height - 1);
+            this.addPulsar((cx + 20) % this.width, Math.max(0, cy - 15));
+            this.draw();
+        }
+
+        addGlider(startX, startY) {
+            const pattern = [
+                [0, 1, 0],
+                [0, 0, 1],
+                [1, 1, 1]
+            ];
+            for (let y = 0; y < pattern.length; y++) {
+                for (let x = 0; x < pattern[y].length; x++) {
+                    const posX = (startX + x + this.width) % this.width;
+                    const posY = (startY + y + this.height) % this.height;
+                    this.grid[posY][posX] = pattern[y][x];
+                }
+            }
+        }
+
+        addBlinker(startX, startY) {
+            for (let i = 0; i < 3; i++) {
+                const posX = (startX + i + this.width) % this.width;
+                const posY = (startY + this.height) % this.height;
+                this.grid[posY][posX] = 1;
+            }
+        }
+
+        addPulsar(startX, startY) {
+            const pattern = [
+                "  OOO   OOO  ",
+                "             ",
+                "O    O O    O",
+                "O    O O    O",
+                "O    O O    O",
+                "  OOO   OOO  ",
+                "             ",
+                "  OOO   OOO  ",
+                "O    O O    O",
+                "O    O O    O",
+                "O    O O    O",
+                "             ",
+                "  OOO   OOO  "
+            ];
+            for (let y = 0; y < pattern.length; y++) {
+                for (let x = 0; x < pattern[y].length; x++) {
+                    if (pattern[y][x] === 'O') {
+                        const posX = (startX + x + this.width) % this.width;
+                        const posY = (startY + y + this.height) % this.height;
+                        this.grid[posY][posX] = 1;
+                    }
+                }
+            }
+        }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        const game = new GameOfLife('gameCanvas', 8);
+        console.log('🌍 Game of Life Toroidale v2 pronto');
+    });
+    </script>
+</body>
+</html>
+
